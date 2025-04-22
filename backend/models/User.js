@@ -1,73 +1,70 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/database');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 
-const userSchema = new mongoose.Schema({
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-    lowercase: true
-  },
-  username: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-    lowercase: true
-  },
-  password: {
-    type: String,
-    required: true,
-    minlength: 6
+const User = sequelize.define('User', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
   },
   name: {
-    type: String,
-    required: true,
-    trim: true
+    type: DataTypes.STRING(100),
+    allowNull: false
   },
-  tokens: [{
-    token: {
-      type: String,
-      required: true
+  username: {
+    type: DataTypes.STRING(50),
+    allowNull: false,
+    unique: true,
+    validate: {
+      len: [3, 50]
     }
-  }]
+  },
+  email: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
+    unique: true,
+    validate: {
+      isEmail: true
+    }
+  },
+  password: {
+    type: DataTypes.STRING(255),
+    allowNull: false
+  }
 }, {
-  timestamps: true
+  tableName: 'users',
+  timestamps: true,          // enables createdAt and updatedAt
+  underscored: true,         // maps to created_at and updated_at in DB
+  indexes: [
+    {
+      unique: true,
+      fields: ['email']
+    },
+    {
+      unique: true,
+      fields: ['username']
+    }
+  ],
+  hooks: {
+    beforeCreate: async (user) => {
+      if (user.password) {
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(user.password, salt);
+      }
+    },
+    beforeUpdate: async (user) => {
+      if (user.changed('password')) {
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(user.password, salt);
+      }
+    }
+  }
 });
 
-// Hash password before saving
-userSchema.pre('save', async function(next) {
-  const user = this;
-  if (user.isModified('password')) {
-    user.password = await bcrypt.hash(user.password, 8);
-  }
-  next();
-});
-
-// Generate auth token
-userSchema.methods.generateAuthToken = async function() {
-  const user = this;
-  const token = jwt.sign({ _id: user._id.toString() }, process.env.JWT_SECRET);
-  user.tokens = user.tokens.concat({ token });
-  await user.save();
-  return token;
+// Password comparison method
+User.prototype.comparePassword = async function(candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Find user by credentials
-userSchema.statics.findByCredentials = async (email, password) => {
-  const user = await User.findOne({ email });
-  if (!user) {
-    throw new Error('Unable to login');
-  }
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) {
-    throw new Error('Unable to login');
-  }
-  return user;
-};
-
-const User = mongoose.model('User', userSchema);
-
-module.exports = User; 
+module.exports = User;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
+import { format } from 'date-fns';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -24,69 +25,76 @@ ChartJS.register(
 );
 
 const Dashboard = () => {
-  const [dailyData, setDailyData] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [totals, setTotals] = useState({
+    totalMilk: 0,
+    totalSale: 0,
+    totalCashReceived: 0,
+    totalCreditDue: 0
+  });
 
-  useEffect(() => {
-    fetchDailyData();
-  }, [selectedDate]);
-
-  const fetchDailyData = async () => {
+  const fetchDashboardData = async () => {
     try {
-      setIsLoading(true);
-      setError('');
-      const token = localStorage.getItem('token');
+      const userData = localStorage.getItem('user');
+      if (!userData) {
+        throw new Error('User data not found');
+      }
       
-      // Use the selected date for both start and end date to get single day's data
-      const formattedDate = selectedDate.split('T')[0];
+      const user = JSON.parse(userData);
+      const token = user.token;
+
+      console.log('Fetching dashboard data for date:', selectedDate);
       
-      const response = await fetch(
-        `http://localhost:5000/api/milk?startDate=${formattedDate}&endDate=${formattedDate}`,
+      const response = await axios.get(
+        `http://localhost:5000/api/milk?startDate=${selectedDate}&endDate=${selectedDate}`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Authorization': `Bearer ${token}`
           }
         }
       );
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch daily data');
-      }
+      const filteredData = response.data.filter(entry => 
+        format(new Date(entry.date), 'yyyy-MM-dd') === selectedDate
+      );
 
-      const data = await response.json();
-      // Filter data to ensure only selected date's data is included
-      const filteredData = Array.isArray(data) 
-        ? data.filter(item => {
-            const itemDate = new Date(item.date).toISOString().split('T')[0];
-            return itemDate === formattedDate;
-          })
-        : [];
-      setDailyData(filteredData);
-    } catch (error) {
-      console.error('Error fetching daily data:', error);
-      setError('Failed to load daily data');
-    } finally {
-      setIsLoading(false);
+      // Calculate totals
+      const calculatedTotals = filteredData.reduce((acc, curr) => ({
+        totalMilk: acc.totalMilk + Number(curr.liters || 0),
+        totalSale: acc.totalSale + (Number(curr.liters || 0) * Number(curr.rate || 0)),
+        totalCashReceived: acc.totalCashReceived + Number(curr.cash_received || 0),
+        totalCreditDue: acc.totalCreditDue + Number(curr.credit_due || 0)
+      }), {
+        totalMilk: 0,
+        totalSale: 0,
+        totalCashReceived: 0,
+        totalCreditDue: 0
+      });
+
+      setData(filteredData);
+      setTotals(calculatedTotals);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+      setError(err.message || 'Failed to fetch dashboard data');
+      setLoading(false);
     }
   };
 
-  // Calculate totals for the summary cards
-  const calculateTotals = () => {
-    const totals = dailyData.reduce((acc, item) => ({
-      liters: acc.liters + (Number(item.liters) || 0),
-      cashReceived: acc.cashReceived + (Number(item.cashReceived) || 0),
-      creditDue: acc.creditDue + (Number(item.creditDue) || 0),
-      totalSale: acc.totalSale + ((Number(item.liters) || 0) * (Number(item.rate) || 0))
-    }), { liters: 0, cashReceived: 0, creditDue: 0, totalSale: 0 });
-    return totals;
+  useEffect(() => {
+    fetchDashboardData();
+  }, [selectedDate]);
+
+  const handleDateChange = (e) => {
+    setSelectedDate(e.target.value);
   };
 
   // Process data for the chart - group by morning/evening
   const processChartData = () => {
-    const groupedData = dailyData.reduce((acc, item) => {
+    const groupedData = data.reduce((acc, item) => {
       const timeOfDay = item.milkType === 'morning' ? 'Morning' : 'Evening';
       if (!acc[timeOfDay]) {
         acc[timeOfDay] = {
@@ -97,8 +105,8 @@ const Dashboard = () => {
       }
       
       acc[timeOfDay].liters += Number(item.liters || 0);
-      acc[timeOfDay].cash += Number(item.cashReceived || 0);
-      acc[timeOfDay].credit += Number(item.creditDue || 0);
+      acc[timeOfDay].cash += Number(item.cash_received || 0);
+      acc[timeOfDay].credit += Number(item.credit_due || 0);
       
       return acc;
     }, {});
@@ -167,52 +175,52 @@ const Dashboard = () => {
     }
   };
 
-  const totals = calculateTotals();
+  if (loading) return <div className="loading">Loading...</div>;
+  if (error) return <div className="error">{error}</div>;
 
   return (
     <div className="dashboard-container">
       <h2>Dashboard Overview</h2>
       
       <div className="date-selector">
-        <label>Select Date:</label>
+        <label htmlFor="dashboardDate">Select Date: </label>
         <input
           type="date"
+          id="dashboardDate"
           value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
+          onChange={handleDateChange}
+          max={format(new Date(), 'yyyy-MM-dd')}
         />
       </div>
-      
-      {error && <div className="error-message">{error}</div>}
-      
-      <div className="dashboard-content">
-        {isLoading ? (
-          <div className="loading">Loading dashboard data...</div>
-        ) : dailyData.length > 0 ? (
-          <>
-            <div className="dashboard-cards">
-              <div className="card">
-                <h3>Total Milk Sold</h3>
-                <p>{totals.liters.toFixed(2)} L</p>
-              </div>
-              <div className="card">
-                <h3>Total Sale</h3>
-                <p>Rs. {totals.totalSale.toFixed(2)}</p>
-              </div>
-              <div className="card">
-                <h3>Cash Received</h3>
-                <p>Rs. {totals.cashReceived.toFixed(2)}</p>
-              </div>
-              <div className="card">
-                <h3>Credit Due</h3>
-                <p>Rs. {totals.creditDue.toFixed(2)}</p>
-              </div>
-            </div>
 
-            <div className="chart-container">
-              <Line data={processChartData()} options={chartOptions} />
-            </div>
-          </>
-        ) : (
+      <div className="dashboard-content">
+        <div className="dashboard-cards">
+          <div className="card total-milk">
+            <h3>Total Milk</h3>
+            <p>{totals.totalMilk.toFixed(2)} L</p>
+          </div>
+          
+          <div className="card total-sale">
+            <h3>Total Sale</h3>
+            <p>Rs. {totals.totalSale.toFixed(2)}</p>
+          </div>
+          
+          <div className="card cash-received">
+            <h3>Cash Received</h3>
+            <p>Rs. {totals.totalCashReceived.toFixed(2)}</p>
+          </div>
+          
+          <div className="card credit-due">
+            <h3>Credit Due</h3>
+            <p>Rs. {totals.totalCreditDue.toFixed(2)}</p>
+          </div>
+        </div>
+
+        <div className="chart-container">
+          <Line data={processChartData()} options={chartOptions} />
+        </div>
+
+        {data.length === 0 && (
           <div className="no-data">No data available for selected date</div>
         )}
       </div>

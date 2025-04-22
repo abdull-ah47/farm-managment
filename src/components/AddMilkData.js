@@ -1,22 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
+import axios from 'axios';
+import { format } from 'date-fns';
 import '../styles/AddMilkData.css';
 
 const AddMilkData = () => {
-  const { user } = useAuth();
-  const [customers, setCustomers] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [formData, setFormData] = useState({
     customerName: '',
     milkType: 'morning',
     liters: '',
     rate: '',
-    cashReceived: '',
-    creditDue: '',
-    date: new Date().toISOString().split('T')[0]
+    cashReceived: '0',
+    creditDue: '0',
+    date: format(new Date(), 'yyyy-MM-dd')
   });
-  const [isNewCustomer, setIsNewCustomer] = useState(false);
+
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     fetchCustomers();
@@ -24,207 +25,135 @@ const AddMilkData = () => {
 
   const fetchCustomers = async () => {
     try {
-      setIsLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/customers', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch customers');
+      const userData = localStorage.getItem('user');
+      if (!userData) {
+        throw new Error('User data not found');
       }
-      const data = await response.json();
-      setCustomers(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error('Error fetching customers:', error);
+      const user = JSON.parse(userData);
+      const token = user.token;
+
+      const response = await axios.get('http://localhost:5000/api/customers', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      setCustomers(response.data);
+    } catch (err) {
+      console.error('Error fetching customers:', err);
       setError('Failed to load customers');
-      setCustomers([]);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    
-    if (name === 'cashReceived' || name === 'creditDue') {
-      const totalAmount = parseFloat(formData.liters) * parseFloat(formData.rate);
-      const enteredValue = parseFloat(value) || 0;
+    setFormData(prev => {
+      const newData = { ...prev, [name]: value };
       
+      // Calculate total amount
+      const totalAmount = Number(newData.liters || 0) * Number(newData.rate || 0);
+      
+      // Auto-calculate credit or cash based on which field was changed
       if (name === 'cashReceived') {
-        // When cash is entered, update credit
-        const remainingAmount = Math.max(0, totalAmount - enteredValue);
-        setFormData(prev => ({
-          ...prev,
-          cashReceived: value,
-          creditDue: remainingAmount.toString()
-        }));
-      } else {
-        // When credit is entered, update cash
-        const remainingAmount = Math.max(0, totalAmount - enteredValue);
-        setFormData(prev => ({
-          ...prev,
-          creditDue: value,
-          cashReceived: remainingAmount.toString()
-        }));
+        newData.creditDue = (totalAmount - Number(value || 0)).toFixed(2);
+      } else if (name === 'creditDue') {
+        newData.cashReceived = (totalAmount - Number(value || 0)).toFixed(2);
+      } else if (name === 'liters' || name === 'rate') {
+        // When liters or rate changes, adjust credit due keeping cash received constant
+        newData.creditDue = (totalAmount - Number(newData.cashReceived || 0)).toFixed(2);
       }
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
-    }
+      
+      return newData;
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
     try {
-      const token = localStorage.getItem('token');
-      
-      // Validate total amount matches sum of cash and credit
-      const totalAmount = parseFloat(formData.liters) * parseFloat(formData.rate);
-      const cashReceived = parseFloat(formData.cashReceived) || 0;
-      const creditDue = parseFloat(formData.creditDue) || 0;
-      
-      if (Math.abs((cashReceived + creditDue) - totalAmount) > 0.01) {
-        throw new Error('Total amount must equal sum of cash received and credit due');
+      const userData = localStorage.getItem('user');
+      if (!userData) {
+        throw new Error('User data not found');
       }
+      const user = JSON.parse(userData);
+      const token = user.token;
 
-      // If it's a new customer, create it first
-      if (isNewCustomer) {
-        const customerResponse = await fetch('http://localhost:5000/api/customers', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            name: formData.customerName,
-            userId: user._id
-          })
-        });
+      // Convert numeric strings to numbers
+      const submitData = {
+        ...formData,
+        liters: Number(formData.liters),
+        rate: Number(formData.rate),
+        cashReceived: Number(formData.cashReceived || 0),
+        creditDue: Number(formData.creditDue || 0)
+      };
 
-        if (!customerResponse.ok) {
-          throw new Error('Failed to create customer');
-        }
-      }
-
-      // Add milk data
-      const response = await fetch('http://localhost:5000/api/milk', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          customerName: formData.customerName,
-          milkType: formData.milkType,
-          liters: parseFloat(formData.liters),
-          rate: parseFloat(formData.rate),
-          cashReceived: parseFloat(formData.cashReceived) || 0,
-          creditDue: parseFloat(formData.creditDue) || 0,
-          userId: user._id,
-          date: formData.date
-        })
+      await axios.post('http://localhost:5000/api/milk', submitData, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to add milk data');
-      }
-
-      // Reset form
+      setSuccess('Milk data added successfully');
+      // Reset form except date
       setFormData({
         customerName: '',
         milkType: 'morning',
         liters: '',
         rate: '',
-        cashReceived: '',
-        creditDue: '',
-        date: new Date().toISOString().split('T')[0]
+        cashReceived: '0',
+        creditDue: '0',
+        date: format(new Date(), 'yyyy-MM-dd')
       });
-      setIsNewCustomer(false);
-      setError('');
-      await fetchCustomers();
-      alert('Milk data added successfully!');
-    } catch (error) {
-      setError(error.message);
+    } catch (err) {
+      console.error('Error adding milk data:', err);
+      setError(err.response?.data?.message || 'Failed to add milk data');
+    } finally {
+      setLoading(false);
     }
   };
-
-  if (isLoading) {
-    return <div className="loading">Loading customers...</div>;
-  }
 
   return (
     <div className="add-milk-container">
       <h2>Add Milk Data</h2>
       
       {error && <div className="error-message">{error}</div>}
+      {success && <div className="success-message">{success}</div>}
       
-      <form onSubmit={handleSubmit} className="milk-form">
+      <form onSubmit={handleSubmit}>
         <div className="form-group">
-          <label>Date</label>
+          <label htmlFor="date">Date:</label>
           <input
             type="date"
+            id="date"
             name="date"
             value={formData.date}
             onChange={handleInputChange}
+            max={format(new Date(), 'yyyy-MM-dd')}
             required
           />
         </div>
 
         <div className="form-group">
-          <label>Customer</label>
-          <div className="customer-type">
-            <label>
-              <input
-                type="radio"
-                checked={!isNewCustomer}
-                onChange={() => setIsNewCustomer(false)}
-              />
-              Select Existing Customer
-            </label>
-            <label>
-              <input
-                type="radio"
-                checked={isNewCustomer}
-                onChange={() => setIsNewCustomer(true)}
-              />
-              New Customer
-            </label>
-          </div>
-          
-          {!isNewCustomer ? (
-            <select
-              name="customerName"
-              value={formData.customerName}
-              onChange={handleInputChange}
-              required
-            >
-              <option value="">Select a customer</option>
-              {customers.map(customer => (
-                <option key={customer._id} value={customer.name}>
-                  {customer.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type="text"
-              name="customerName"
-              value={formData.customerName}
-              onChange={handleInputChange}
-              placeholder="Enter customer name"
-              required
-            />
-          )}
+          <label htmlFor="customerName">Customer Name:</label>
+          <select
+            id="customerName"
+            name="customerName"
+            value={formData.customerName}
+            onChange={handleInputChange}
+            required
+          >
+            <option value="">Select Customer</option>
+            {customers.map(customer => (
+              <option key={customer.id} value={customer.name}>
+                {customer.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="form-group">
-          <label>Milk Type</label>
+          <label htmlFor="milkType">Milk Type:</label>
           <select
+            id="milkType"
             name="milkType"
             value={formData.milkType}
             onChange={handleInputChange}
@@ -236,54 +165,65 @@ const AddMilkData = () => {
         </div>
 
         <div className="form-group">
-          <label>Liters</label>
+          <label htmlFor="liters">Liters:</label>
           <input
             type="number"
+            id="liters"
             name="liters"
             value={formData.liters}
             onChange={handleInputChange}
-            step="0.1"
             min="0"
+            step="0.01"
             required
           />
         </div>
 
         <div className="form-group">
-          <label>Rate per Liter</label>
+          <label htmlFor="rate">Rate (Rs.):</label>
           <input
             type="number"
+            id="rate"
             name="rate"
             value={formData.rate}
             onChange={handleInputChange}
             min="0"
+            step="0.01"
             required
           />
         </div>
 
         <div className="form-group">
-          <label>Cash Received</label>
+          <label htmlFor="cashReceived">Cash Received (Rs.):</label>
           <input
             type="number"
+            id="cashReceived"
             name="cashReceived"
             value={formData.cashReceived}
             onChange={handleInputChange}
             min="0"
+            step="0.01"
           />
         </div>
 
         <div className="form-group">
-          <label>Credit Due</label>
+          <label htmlFor="creditDue">Credit Due (Rs.):</label>
           <input
             type="number"
+            id="creditDue"
             name="creditDue"
             value={formData.creditDue}
             onChange={handleInputChange}
             min="0"
+            step="0.01"
           />
         </div>
 
-        <button type="submit" className="submit-button">
-          Add Milk Data
+        <div className="total-amount">
+          <strong>Total Amount: Rs. {(Number(formData.liters || 0) * Number(formData.rate || 0)).toFixed(2)}</strong>
+        </div>
+
+        <button type="submit" disabled={loading}>
+          {loading ? 'Adding...' : 'Add Milk Data'}
         </button>
       </form>
     </div>

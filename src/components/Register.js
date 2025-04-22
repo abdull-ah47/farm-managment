@@ -47,28 +47,38 @@ const Register = () => {
     if (!validateForm()) return;
 
     setLoading(true);
+    setError('');
+    
     try {
-      const response = await fetch('http://localhost:5000/api/auth/register', {
+      const response = await fetch('http://localhost:5000/api/user/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json'
         },
         body: JSON.stringify({
           name: formData.name,
-          email: formData.email,
           username: formData.username,
+          email: formData.email,
           password: formData.password,
         }),
       });
 
       const data = await response.json();
+
       if (!response.ok) {
-        throw new Error(data.message || 'Registration failed');
+        throw new Error(data.error || 'Registration failed');
       }
 
+      console.log('Registration successful:', data);
       navigate('/login');
     } catch (err) {
-      setError(err.message);
+      console.error('Registration error:', err);
+      if (err.message === 'Failed to fetch') {
+        setError('Unable to connect to the server. Please check your internet connection or try again later.');
+      } else {
+        setError(err.message || 'Registration failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }

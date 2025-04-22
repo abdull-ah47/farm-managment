@@ -4,12 +4,13 @@ import { useNavigate } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import '../styles/GenerateReport.css';
+import { format } from 'date-fns';
 
 const GenerateReport = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [customerName, setCustomerName] = useState('All Customers');
   const [milkType, setMilkType] = useState('All Types');
   const [customers, setCustomers] = useState([]);
@@ -69,6 +70,9 @@ const GenerateReport = () => {
         return;
       }
 
+      console.log('Generating report for:', { startDate, endDate, customerName, milkType });
+      console.log('Using token:', token);
+
       let url = `http://localhost:5000/api/milk?startDate=${startDate}&endDate=${endDate}`;
       if (customerName !== 'All Customers') {
         url += `&customerName=${customerName}`;
@@ -76,6 +80,8 @@ const GenerateReport = () => {
       if (milkType !== 'All Types') {
         url += `&milkType=${milkType.toLowerCase()}`;
       }
+
+      console.log('Fetching from URL:', url);
 
       const response = await fetch(url, {
         headers: {
@@ -85,17 +91,20 @@ const GenerateReport = () => {
       });
 
       if (response.status === 401) {
+        console.log('Unauthorized access - redirecting to login');
         logout();
         navigate('/login');
         return;
       }
 
       if (!response.ok) {
-        throw new Error('Failed to fetch report data');
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API Error:', { status: response.status, data: errorData });
+        throw new Error(`Failed to fetch report data: ${errorData.message || response.statusText}`);
       }
 
       const data = await response.json();
-      console.log('Report data:', data);
+      console.log('Report data received:', data);
       setReportData(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error generating report:', error);
@@ -107,11 +116,16 @@ const GenerateReport = () => {
 
   const calculateTotals = () => {
     return reportData.reduce((totals, item) => {
+      const liters = Number(item.liters) || 0;
+      const rate = Number(item.rate) || 0;
+      const cashReceived = Number(item.cash_received) || 0;
+      const creditDue = Number(item.credit_due) || 0;
+      
       return {
-        liters: totals.liters + (Number(item.liters) || 0),
-        cashReceived: totals.cashReceived + (Number(item.cashReceived) || 0),
-        creditDue: totals.creditDue + (Number(item.creditDue) || 0),
-        totalAmount: totals.totalAmount + ((Number(item.liters) || 0) * (Number(item.rate) || 0))
+        liters: totals.liters + liters,
+        cashReceived: totals.cashReceived + cashReceived,
+        creditDue: totals.creditDue + creditDue,
+        totalAmount: totals.totalAmount + (liters * rate)
       };
     }, { liters: 0, cashReceived: 0, creditDue: 0, totalAmount: 0 });
   };
@@ -205,9 +219,9 @@ const GenerateReport = () => {
         <div className="filter-group">
           <label>Customer</label>
           <select value={customerName} onChange={(e) => setCustomerName(e.target.value)}>
-            <option value="All Customers">All Customers</option>
+            <option value="All Customers" key="all">All Customers</option>
             {customers.map((customer) => (
-              <option key={customer._id} value={customer.name}>
+              <option key={customer.id} value={customer.name}>
                 {customer.name}
               </option>
             ))}
@@ -260,16 +274,16 @@ const GenerateReport = () => {
                 </tr>
               </thead>
               <tbody>
-                {reportData.map((item, index) => (
-                  <tr key={index}>
+                {reportData.map((item) => (
+                  <tr key={item.id || `${item.date}-${item.customer_name}-${item.milk_type}`}>
                     <td>{new Date(item.date).toLocaleDateString()}</td>
-                    <td>{item.customerName}</td>
-                    <td>{item.milkType === 'morning' ? 'Morning' : 'Evening'}</td>
+                    <td>{item.customer_name}</td>
+                    <td>{item.milk_type === 'morning' ? 'Morning' : 'Evening'}</td>
                     <td>{Number(item.liters).toFixed(2)}</td>
                     <td>Rs {Number(item.rate).toFixed(2)}</td>
                     <td>Rs {(Number(item.liters) * Number(item.rate)).toFixed(2)}</td>
-                    <td>Rs {Number(item.cashReceived).toFixed(2)}</td>
-                    <td>Rs {Number(item.creditDue).toFixed(2)}</td>
+                    <td>Rs {Number(item.cash_received || 0).toFixed(2)}</td>
+                    <td>Rs {Number(item.credit_due || 0).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>

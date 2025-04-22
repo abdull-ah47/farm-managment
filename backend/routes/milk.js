@@ -1,204 +1,277 @@
 const express = require('express');
 const router = express.Router();
-const MilkEntry = require('../models/MilkEntry');
+const mysql = require('mysql2/promise');
 const auth = require('../middleware/auth');
+const { Milk } = require('../models/Milk');
+const { User } = require('../models/User');
+require('dotenv').config();
 
-// Add new milk entry
-router.post('/', auth, async (req, res) => {
-  try {
-    const milkEntry = new MilkEntry({
-      ...req.body,
-      userId: req.user._id
-    });
-    await milkEntry.save();
-    res.status(201).json(milkEntry);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
+// Create connection pool
+const pool = mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
 });
 
-// Get all milk entries for the authenticated user
+// Get milk data
 router.get('/', auth, async (req, res) => {
-  try {
-    const { startDate, endDate, customerName, milkType } = req.query;
-    const query = { userId: req.user._id };
+    try {
+        console.log('Received request for milk data with query:', req.query);
+        const { startDate, endDate, customerName, milkType } = req.query;
+        
+        // Validate dates
+        if (!startDate || !endDate) {
+            console.log('Missing date parameters');
+            return res.status(400).json({ 
+                error: 'Missing date parameters',
+                message: 'Both startDate and endDate are required'
+            });
+        }
 
-    if (startDate && endDate) {
-      query.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+        // Build the base query
+        let query = `
+            SELECT m.*, c.name as customer_name 
+            FROM milk m
+            LEFT JOIN customers c ON m.customer_name = c.name AND m.user_id = c.user_id
+            WHERE m.user_id = ? 
+            AND m.date BETWEEN ? AND ?
+        `;
+        
+        let params = [req.user.id, startDate, endDate];
+
+        // Add optional filters
+        if (customerName) {
+            query += ' AND m.customer_name = ?';
+            params.push(customerName);
+        }
+        if (milkType) {
+            query += ' AND m.milk_type = ?';
+            params.push(milkType);
+        }
+
+        // Add ordering
+        query += ' ORDER BY m.date DESC, m.milk_type';
+
+        console.log('Executing query:', query);
+        console.log('With parameters:', params);
+
+        const connection = await pool.getConnection();
+        const [rows] = await connection.query(query, params);
+        
+        console.log(`Found ${rows.length} records`);
+        
+        // Format numeric values
+        const formattedRows = rows.map(row => ({
+            ...row,
+            id: row.id,
+            customerName: row.customer_name,
+            milkType: row.milk_type,
+            liters: Number(row.liters),
+            rate: Number(row.rate),
+            cashReceived: Number(row.cash_received || 0),
+            creditDue: Number(row.credit_due || 0),
+            date: row.date,
+            userId: row.user_id
+        }));
+        
+        connection.release();
+        res.json(formattedRows);
+    } catch (error) {
+        console.error('Error fetching milk data:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch milk data',
+            message: error.message,
+            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
-
-    if (customerName) {
-      query.customerName = customerName;
-    }
-
-    if (milkType) {
-      query.milkType = milkType;
-    }
-
-    const entries = await MilkEntry.find(query).sort({ date: -1 });
-    res.json(entries);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
-// Get daily data
-router.get('/daily-data', auth, async (req, res) => {
-  try {
-    const entries = await MilkEntry.find({
-      userId: req.user._id
-    }).sort({ date: -1 });
+// Add milk entry
+router.post('/', auth, async (req, res) => {
+    try {
+        console.log('Received milk entry data:', req.body);
+        const { customerName, milkType, liters, rate, cashReceived, creditDue, date } = req.body;
 
-    res.json(entries);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+        // Validate required fields
+        if (!customerName || !milkType || !liters || !rate || !date) {
+            return res.status(400).json({ 
+                error: 'Missing required fields',
+                message: 'Please provide all required fields: customerName, milkType, liters, rate, date'
+            });
+        }
+
+        const connection = await pool.getConnection();
+
+        // Verify customer exists
+        const [customers] = await connection.query(
+            'SELECT id FROM customers WHERE name = ? AND user_id = ?',
+            [customerName, req.user.id]
+        );
+
+        if (customers.length === 0) {
+            connection.release();
+            return res.status(400).json({ 
+                error: 'Invalid customer',
+                message: 'The specified customer does not exist'
+            });
+        }
+
+        // Insert milk entry with proper numeric values
+        const [result] = await connection.query(
+            `INSERT INTO milk 
+             (customer_name, milk_type, liters, rate, cash_received, credit_due, date, user_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                customerName,
+                milkType,
+                Number(liters),
+                Number(rate),
+                Number(cashReceived || 0),
+                Number(creditDue || 0),
+                date,
+                req.user.id
+            ]
+        );
+
+        connection.release();
+        
+        // Return the newly created entry
+        res.status(201).json({ 
+            id: result.insertId,
+            customerName,
+            milkType,
+            liters: Number(liters),
+            rate: Number(rate),
+            cashReceived: Number(cashReceived || 0),
+            creditDue: Number(creditDue || 0),
+            date,
+            message: 'Milk entry added successfully' 
+        });
+    } catch (error) {
+        console.error('Error adding milk entry:', error);
+        res.status(500).json({ error: 'Failed to add milk entry' });
+    }
 });
 
-// Get monthly data
-router.get('/monthly-data', auth, async (req, res) => {
-  try {
-    const currentDate = new Date();
-    const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-    const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+// Also support the /add endpoint for backward compatibility
+router.post('/add', auth, async (req, res) => {
+    try {
+        console.log('Received milk entry data on /add endpoint:', req.body);
+        const { customerName, milkType, liters, rate, cashReceived, creditDue, date } = req.body;
 
-    const entries = await MilkEntry.find({
-      userId: req.user._id,
-      date: {
-        $gte: startOfMonth,
-        $lte: endOfMonth
-      }
-    }).sort({ date: 1 });
+        // Validate required fields
+        if (!customerName || !milkType || !liters || !rate || !date) {
+            return res.status(400).json({ 
+                error: 'Missing required fields',
+                message: 'Please provide all required fields: customerName, milkType, liters, rate, date'
+            });
+        }
 
-    // Calculate totals
-    const totals = entries.reduce((acc, entry) => {
-      acc.cashReceived += entry.cashReceived || 0;
-      acc.creditDue += entry.creditDue || 0;
-      acc.totalMilkSold += entry.liters || 0;
-      return acc;
-    }, { cashReceived: 0, creditDue: 0, totalMilkSold: 0 });
+        const connection = await pool.getConnection();
 
-    // Prepare data for chart
-    const dates = [];
-    const cashReceived = [];
-    const creditDue = [];
-    const totalMilkSold = [];
+        // Verify customer exists
+        const [customers] = await connection.query(
+            'SELECT id FROM customers WHERE name = ? AND user_id = ?',
+            [customerName, req.user.id]
+        );
 
-    entries.forEach(entry => {
-      const date = entry.date.toISOString().split('T')[0];
-      if (!dates.includes(date)) {
-        dates.push(date);
-        cashReceived.push(0);
-        creditDue.push(0);
-        totalMilkSold.push(0);
-      }
+        if (customers.length === 0) {
+            connection.release();
+            return res.status(400).json({ 
+                error: 'Invalid customer',
+                message: 'The specified customer does not exist'
+            });
+        }
 
-      const index = dates.indexOf(date);
-      cashReceived[index] += entry.cashReceived || 0;
-      creditDue[index] += entry.creditDue || 0;
-      totalMilkSold[index] += entry.liters || 0;
-    });
+        // Insert milk entry with proper numeric values
+        const [result] = await connection.query(
+            `INSERT INTO milk 
+             (customer_name, milk_type, liters, rate, cash_received, credit_due, date, user_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                customerName,
+                milkType,
+                Number(liters),
+                Number(rate),
+                Number(cashReceived || 0),
+                Number(creditDue || 0),
+                date,
+                req.user.id
+            ]
+        );
 
-    res.json({
-      ...totals,
-      dates,
-      cashReceived,
-      creditDue,
-      totalMilkSold
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+        connection.release();
+        
+        // Return the newly created entry
+        res.status(201).json({ 
+            id: result.insertId,
+            customerName,
+            milkType,
+            liters: Number(liters),
+            rate: Number(rate),
+            cashReceived: Number(cashReceived || 0),
+            creditDue: Number(creditDue || 0),
+            date,
+            message: 'Milk entry added successfully' 
+        });
+    } catch (error) {
+        console.error('Error adding milk entry:', error);
+        res.status(500).json({ error: 'Failed to add milk entry' });
+    }
 });
 
 // Update milk entry
 router.put('/:id', auth, async (req, res) => {
-  try {
-    console.log('Update request received for ID:', req.params.id);
-    console.log('Update data:', req.body);
+    try {
+        const { customerName, milkType, liters, rate, cashReceived, creditDue, date } = req.body;
+        const connection = await pool.getConnection();
 
-    // Validate required fields
-    const { customerName, milkType, liters, rate, cashReceived, creditDue } = req.body;
+        const [result] = await connection.query(
+            `UPDATE milk 
+             SET customer_name = ?, milk_type = ?, liters = ?, 
+                 rate = ?, cash_received = ?, credit_due = ?, date = ?
+             WHERE id = ? AND user_id = ?`,
+            [customerName, milkType, liters, rate, cashReceived, creditDue, date, req.params.id, req.user.id]
+        );
 
-    if (!customerName || !milkType || liters === undefined || rate === undefined) {
-      return res.status(400).json({ error: 'Missing required fields' });
+        connection.release();
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Milk entry not found' });
+        }
+
+        res.json({ message: 'Milk entry updated successfully' });
+    } catch (error) {
+        console.error('Error updating milk entry:', error);
+        res.status(500).json({ error: 'Failed to update milk entry' });
     }
-
-    // Validate numeric values
-    if (isNaN(liters) || liters <= 0) {
-      return res.status(400).json({ error: 'Liters must be a positive number' });
-    }
-    if (isNaN(rate) || rate <= 0) {
-      return res.status(400).json({ error: 'Rate must be a positive number' });
-    }
-    if (isNaN(cashReceived) || cashReceived < 0) {
-      return res.status(400).json({ error: 'Cash received must be a non-negative number' });
-    }
-    if (isNaN(creditDue) || creditDue < 0) {
-      return res.status(400).json({ error: 'Credit due must be a non-negative number' });
-    }
-
-    // Validate milk type
-    if (!['morning', 'evening'].includes(milkType)) {
-      return res.status(400).json({ error: 'Invalid milk type' });
-    }
-
-    const updates = Object.keys(req.body);
-    const allowedUpdates = ['customerName', 'milkType', 'liters', 'rate', 'cashReceived', 'creditDue'];
-    const isValidOperation = updates.every(update => allowedUpdates.includes(update));
-
-    if (!isValidOperation) {
-      return res.status(400).json({ error: 'Invalid updates!' });
-    }
-
-    const entry = await MilkEntry.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        userId: req.user._id
-      },
-      {
-        customerName,
-        milkType,
-        liters: Number(liters),
-        rate: Number(rate),
-        cashReceived: Number(cashReceived),
-        creditDue: Number(creditDue)
-      },
-      { new: true, runValidators: true }
-    );
-
-    if (!entry) {
-      console.log('Entry not found');
-      return res.status(404).json({ error: 'Entry not found' });
-    }
-
-    console.log('Entry updated successfully:', entry);
-    res.json(entry);
-  } catch (error) {
-    console.error('Update error:', error);
-    res.status(400).json({ error: error.message });
-  }
 });
 
 // Delete milk entry
 router.delete('/:id', auth, async (req, res) => {
-  try {
-    const entry = await MilkEntry.findOneAndDelete({
-      _id: req.params.id,
-      userId: req.user._id
-    });
+    try {
+        const connection = await pool.getConnection();
+        
+        const [result] = await connection.query(
+            'DELETE FROM milk WHERE id = ? AND user_id = ?',
+            [req.params.id, req.user.id]
+        );
 
-    if (!entry) {
-      return res.status(404).json({ error: 'Entry not found' });
+        connection.release();
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Milk entry not found' });
+        }
+
+        res.json({ message: 'Milk entry deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting milk entry:', error);
+        res.status(500).json({ error: 'Failed to delete milk entry' });
     }
-
-    res.json(entry);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
 module.exports = router; 

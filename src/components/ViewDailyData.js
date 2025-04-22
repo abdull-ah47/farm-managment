@@ -8,7 +8,8 @@ const ViewDailyData = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [editingEntry, setEditingEntry] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editFormData, setEditFormData] = useState(null);
   const [totals, setTotals] = useState({
     liters: 0,
     cashReceived: 0,
@@ -29,33 +30,34 @@ const ViewDailyData = () => {
         throw new Error('Authentication token not found');
       }
 
-      const response = await axios.get(`http://localhost:5000/api/milk/daily-data?date=${date}`, {
+      console.log('Fetching data for date:', date);
+      
+      const response = await axios.get(`http://localhost:5000/api/milk?startDate=${date}&endDate=${date}`, {
         headers: { 
           'Authorization': `Bearer ${token}`
         }
       });
-      
+
       if (!response.data) {
         throw new Error('No data received from server');
       }
 
-      // Filter data for selected date
+      // Filter and ensure unique entries
       const filteredData = response.data.filter(entry => 
         format(new Date(entry.date), 'yyyy-MM-dd') === date
       );
 
+      console.log('Filtered data:', filteredData);
+
+      // Calculate totals
+      const calculatedTotals = filteredData.reduce((acc, curr) => ({
+        liters: acc.liters + Number(curr.liters || 0),
+        cashReceived: acc.cashReceived + Number(curr.cash_received || 0),
+        creditDue: acc.creditDue + Number(curr.credit_due || 0),
+        totalSale: acc.totalSale + (Number(curr.liters || 0) * Number(curr.rate || 0))
+      }), { liters: 0, cashReceived: 0, creditDue: 0, totalSale: 0 });
+
       setData(filteredData);
-      
-      // Calculate totals for filtered data
-      const calculatedTotals = filteredData.reduce((acc, curr) => {
-        return {
-          liters: acc.liters + parseFloat(curr.liters || 0),
-          cashReceived: acc.cashReceived + parseFloat(curr.cashReceived || 0),
-          creditDue: acc.creditDue + parseFloat(curr.creditDue || 0),
-          totalSale: acc.totalSale + (parseFloat(curr.liters || 0) * parseFloat(curr.rate || 0))
-        };
-      }, { liters: 0, cashReceived: 0, creditDue: 0, totalSale: 0 });
-      
       setTotals(calculatedTotals);
       setLoading(false);
     } catch (err) {
@@ -73,6 +75,72 @@ const ViewDailyData = () => {
     setSelectedDate(e.target.value);
   };
 
+  const handleEdit = (entry) => {
+    setEditingId(entry.id);
+    setEditFormData({
+      ...entry,
+      date: format(new Date(entry.date), 'yyyy-MM-dd')
+    });
+  };
+
+  const handleUpdate = async () => {
+    try {
+      const userData = localStorage.getItem('user');
+      const user = JSON.parse(userData);
+      const token = user.token;
+
+      const updateData = {
+        customerName: editFormData.customerName.trim(),
+        milkType: editFormData.milkType,
+        liters: Number(editFormData.liters),
+        rate: Number(editFormData.rate),
+        cashReceived: Number(editFormData.cashReceived || 0),
+        creditDue: Number(editFormData.creditDue || 0),
+        date: editFormData.date
+      };
+
+      await axios.put(
+        `http://localhost:5000/api/milk/${editingId}`,
+        updateData,
+        {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      setEditingId(null);
+      setEditFormData(null);
+      fetchData(selectedDate);
+    } catch (err) {
+      console.error('Error updating entry:', err);
+      alert(err.response?.data?.error || 'Failed to update entry');
+    }
+  };
+
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditFormData(prev => {
+      const newData = { ...prev, [name]: value };
+      
+      // Calculate total amount
+      const totalAmount = Number(newData.liters || 0) * Number(newData.rate || 0);
+      
+      // Auto-calculate credit or cash based on which field was changed
+      if (name === 'cashReceived') {
+        newData.creditDue = (totalAmount - Number(value || 0)).toFixed(2);
+      } else if (name === 'creditDue') {
+        newData.cashReceived = (totalAmount - Number(value || 0)).toFixed(2);
+      } else if (name === 'liters' || name === 'rate') {
+        // When liters or rate changes, adjust credit due keeping cash received constant
+        newData.creditDue = (totalAmount - Number(newData.cashReceived || 0)).toFixed(2);
+      }
+      
+      return newData;
+    });
+  };
+
   const handleDelete = async (entryId) => {
     if (!window.confirm('Are you sure you want to delete this entry?')) {
       return;
@@ -87,89 +155,11 @@ const ViewDailyData = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
-      // Refresh data after deletion
       fetchData(selectedDate);
     } catch (err) {
       console.error('Error deleting entry:', err);
       alert('Failed to delete entry');
     }
-  };
-
-  const handleEdit = (entry) => {
-    setEditingEntry({
-      ...entry,
-      date: format(new Date(entry.date), 'yyyy-MM-dd')
-    });
-  };
-
-  const handleUpdate = async () => {
-    try {
-      const userData = localStorage.getItem('user');
-      const user = JSON.parse(userData);
-      const token = user.token;
-
-      // Validate the data before sending
-      const updateData = {
-        customerName: editingEntry.customerName.trim(),
-        milkType: editingEntry.milkType,
-        liters: Number(editingEntry.liters),
-        rate: Number(editingEntry.rate),
-        cashReceived: Number(editingEntry.cashReceived),
-        creditDue: Number(editingEntry.creditDue)
-      };
-
-      // Validate numbers
-      if (isNaN(updateData.liters) || updateData.liters <= 0) {
-        throw new Error('Liters must be a positive number');
-      }
-      if (isNaN(updateData.rate) || updateData.rate <= 0) {
-        throw new Error('Rate must be a positive number');
-      }
-      if (isNaN(updateData.cashReceived) || updateData.cashReceived < 0) {
-        throw new Error('Cash received must be a non-negative number');
-      }
-      if (isNaN(updateData.creditDue) || updateData.creditDue < 0) {
-        throw new Error('Credit due must be a non-negative number');
-      }
-
-      // Validate customer name
-      if (!updateData.customerName) {
-        throw new Error('Customer name is required');
-      }
-
-      // Validate milk type
-      if (!['morning', 'evening'].includes(updateData.milkType)) {
-        throw new Error('Invalid milk type');
-      }
-
-      console.log('Sending update data:', updateData);
-      const response = await axios.put(
-        `http://localhost:5000/api/milk/${editingEntry._id}`,
-        updateData,
-        {
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      console.log('Update response:', response.data);
-      setEditingEntry(null);
-      fetchData(selectedDate);
-    } catch (err) {
-      console.error('Error updating entry:', err);
-      const errorMessage = err.response?.data?.error || err.message || 'Failed to update entry';
-      alert(errorMessage);
-    }
-  };
-
-  const handleEditChange = (e) => {
-    const { name, value } = e.target;
-    setEditingEntry(prev => ({
-      ...prev,
-      [name]: value
-    }));
   };
 
   if (loading) return <div className="loading">Loading...</div>;
@@ -189,7 +179,7 @@ const ViewDailyData = () => {
           max={format(new Date(), 'yyyy-MM-dd')}
         />
       </div>
-
+      
       <div className="totals-summary">
         <div className="total-item">
           <span>Total Liters:</span>
@@ -225,22 +215,22 @@ const ViewDailyData = () => {
           </thead>
           <tbody>
             {data.map((entry) => (
-              <tr key={entry._id}>
-                {editingEntry && editingEntry._id === entry._id ? (
+              <tr key={entry.id}>
+                {editingId === entry.id ? (
                   <>
                     <td>{format(new Date(entry.date), 'dd/MM/yyyy')}</td>
                     <td>
                       <input
                         type="text"
                         name="customerName"
-                        value={editingEntry.customerName}
+                        value={editFormData.customerName}
                         onChange={handleEditChange}
                       />
                     </td>
                     <td>
                       <select
                         name="milkType"
-                        value={editingEntry.milkType}
+                        value={editFormData.milkType}
                         onChange={handleEditChange}
                       >
                         <option value="morning">Morning</option>
@@ -251,49 +241,48 @@ const ViewDailyData = () => {
                       <input
                         type="number"
                         name="liters"
-                        value={editingEntry.liters}
+                        value={editFormData.liters}
                         onChange={handleEditChange}
                         min="0"
                         step="0.01"
-                        required
                       />
                     </td>
                     <td>
                       <input
                         type="number"
                         name="rate"
-                        value={editingEntry.rate}
+                        value={editFormData.rate}
                         onChange={handleEditChange}
                         min="0"
                         step="0.01"
-                        required
                       />
                     </td>
                     <td>
                       <input
                         type="number"
                         name="cashReceived"
-                        value={editingEntry.cashReceived}
+                        value={editFormData.cashReceived}
                         onChange={handleEditChange}
                         min="0"
                         step="0.01"
-                        required
                       />
                     </td>
                     <td>
                       <input
                         type="number"
                         name="creditDue"
-                        value={editingEntry.creditDue}
+                        value={editFormData.creditDue}
                         onChange={handleEditChange}
                         min="0"
                         step="0.01"
-                        required
                       />
                     </td>
                     <td>
-                      <button onClick={handleUpdate}>Save</button>
-                      <button onClick={() => setEditingEntry(null)}>Cancel</button>
+                      <button className="save-btn" onClick={handleUpdate}>Save</button>
+                      <button className="cancel-btn" onClick={() => {
+                        setEditingId(null);
+                        setEditFormData(null);
+                      }}>Cancel</button>
                     </td>
                   </>
                 ) : (
@@ -301,13 +290,13 @@ const ViewDailyData = () => {
                     <td>{format(new Date(entry.date), 'dd/MM/yyyy')}</td>
                     <td>{entry.customerName}</td>
                     <td>{entry.milkType}</td>
-                    <td>{parseFloat(entry.liters).toFixed(2)}</td>
-                    <td>{parseFloat(entry.rate).toFixed(2)}</td>
-                    <td>{parseFloat(entry.cashReceived).toFixed(2)}</td>
-                    <td>{parseFloat(entry.creditDue).toFixed(2)}</td>
+                    <td>{Number(entry.liters).toFixed(2)}</td>
+                    <td>{Number(entry.rate).toFixed(2)}</td>
+                    <td>{Number(entry.cash_received || 0).toFixed(2)}</td>
+                    <td>{Number(entry.credit_due || 0).toFixed(2)}</td>
                     <td>
-                      <button onClick={() => handleEdit(entry)}>Edit</button>
-                      <button onClick={() => handleDelete(entry._id)}>Delete</button>
+                      <button className="edit-btn" onClick={() => handleEdit(entry)}>Edit</button>
+                      <button className="delete-btn" onClick={() => handleDelete(entry.id)}>Delete</button>
                     </td>
                   </>
                 )}

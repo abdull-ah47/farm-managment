@@ -1,25 +1,35 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const sequelize = require('../config/database');
 
-const customerSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true,
-    ref: 'User'
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
+const Customer = sequelize.define('customer', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    name: {
+        type: DataTypes.STRING,
+        allowNull: false
+    },
+    user_id: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        field: 'user_id',
+        references: {
+            model: 'users',
+            key: 'id'
+        }
+    }
+}, {
+    tableName: 'customers',
+    timestamps: true,
+    underscored: true,
+    indexes: [
+        {
+            unique: true,
+            fields: ['name', 'user_id']
+        }
+    ]
 });
-
-// Ensure unique customer names per user
-customerSchema.index({ name: 1, userId: 1 }, { unique: true });
-
-const Customer = mongoose.model('Customer', customerSchema);
 
 module.exports = Customer; 
