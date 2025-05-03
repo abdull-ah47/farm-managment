@@ -1,19 +1,19 @@
 {
   "short_name": "CHINAR Dairy Managment",
-  "name": "Dairy Farm Managment",
+  "name": " CHINAR Dairy Managment",
   "icons": [
     {
-      "src": "favicon.ico",
+      "src": "CLOGO.png",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
     },
     {
-      "src": "logo192.png",
+      "src": "chinar.png",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "logo512.png",
+      "src": "chinar.png",
       "type": "image/png",
       "sizes": "512x512"
     }

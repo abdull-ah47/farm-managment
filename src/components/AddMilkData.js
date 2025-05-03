@@ -5,7 +5,7 @@ import '../styles/AddMilkData.css';
 
 const AddMilkData = () => {
   const [formData, setFormData] = useState({
-    customerName: '',
+    customerId: '', // Change to store customer ID
     milkType: 'morning',
     liters: '',
     rate: '',
@@ -18,6 +18,7 @@ const AddMilkData = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [isNewCustomer, setIsNewCustomer] = useState(false); // toggle state
 
   useEffect(() => {
     fetchCustomers();
@@ -33,7 +34,7 @@ const AddMilkData = () => {
       const token = user.token;
 
       const response = await axios.get('http://localhost:5000/api/customers', {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       setCustomers(response.data);
@@ -47,20 +48,17 @@ const AddMilkData = () => {
     const { name, value } = e.target;
     setFormData(prev => {
       const newData = { ...prev, [name]: value };
-      
-      // Calculate total amount
+
       const totalAmount = Number(newData.liters || 0) * Number(newData.rate || 0);
-      
-      // Auto-calculate credit or cash based on which field was changed
+
       if (name === 'cashReceived') {
         newData.creditDue = (totalAmount - Number(value || 0)).toFixed(2);
       } else if (name === 'creditDue') {
         newData.cashReceived = (totalAmount - Number(value || 0)).toFixed(2);
       } else if (name === 'liters' || name === 'rate') {
-        // When liters or rate changes, adjust credit due keeping cash received constant
         newData.creditDue = (totalAmount - Number(newData.cashReceived || 0)).toFixed(2);
       }
-      
+
       return newData;
     });
   };
@@ -79,7 +77,6 @@ const AddMilkData = () => {
       const user = JSON.parse(userData);
       const token = user.token;
 
-      // Convert numeric strings to numbers
       const submitData = {
         ...formData,
         liters: Number(formData.liters),
@@ -88,14 +85,28 @@ const AddMilkData = () => {
         creditDue: Number(formData.creditDue || 0)
       };
 
+      if (isNewCustomer) {
+        // If adding a new customer, first create the customer
+        const newCustomerResponse = await axios.post('http://localhost:5000/api/customers', {
+          name: formData.customerName // Send the new customer name to the backend
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        const newCustomerId = newCustomerResponse.data.id; // Get the new customer ID
+        submitData.customerId = newCustomerId; // Set customerId in submit data
+      }
+
+      console.log("Submitting data:", submitData);
+
+      // Send milk data to backend
       await axios.post('http://localhost:5000/api/milk', submitData, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` }
       });
 
       setSuccess('Milk data added successfully');
-      // Reset form except date
       setFormData({
-        customerName: '',
+        customerId: '',
         milkType: 'morning',
         liters: '',
         rate: '',
@@ -114,10 +125,10 @@ const AddMilkData = () => {
   return (
     <div className="add-milk-container">
       <h2>Add Milk Data</h2>
-      
+
       {error && <div className="error-message">{error}</div>}
       {success && <div className="success-message">{success}</div>}
-      
+
       <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label htmlFor="date">Date:</label>
@@ -133,21 +144,54 @@ const AddMilkData = () => {
         </div>
 
         <div className="form-group">
-          <label htmlFor="customerName">Customer Name:</label>
-          <select
-            id="customerName"
-            name="customerName"
-            value={formData.customerName}
-            onChange={handleInputChange}
-            required
-          >
-            <option value="">Select Customer</option>
-            {customers.map(customer => (
-              <option key={customer.id} value={customer.name}>
-                {customer.name}
-              </option>
-            ))}
-          </select>
+          <label>Customer:</label>
+          <div className="toggle-buttons">
+            <button
+              type="button"
+              className={!isNewCustomer ? 'active' : ''}
+              onClick={() => {
+                setIsNewCustomer(false);
+                setFormData({ ...formData, customerId: '', customerName: '' });
+              }}
+            >
+              Select Existing
+            </button>
+            <button
+              type="button"
+              className={isNewCustomer ? 'active' : ''}
+              onClick={() => {
+                setIsNewCustomer(true);
+                setFormData({ ...formData, customerId: '', customerName: '' });
+              }}
+            >
+              Add New
+            </button>
+          </div>
+
+          {!isNewCustomer ? (
+            <select
+              name="customerId"
+              value={formData.customerId}
+              onChange={handleInputChange}
+              required
+            >
+              <option value="">Select Customer</option>
+              {customers.map(customer => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              name="customerName"
+              placeholder="Enter new customer name"
+              value={formData.customerName}
+              onChange={handleInputChange}
+              required
+            />
+          )}
         </div>
 
         <div className="form-group">

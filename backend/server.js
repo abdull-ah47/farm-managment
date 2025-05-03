@@ -25,12 +25,15 @@ const pool = mysql.createPool({
 });
 
 // CORS configuration
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
-  credentials: true,
+const corsOptions = {
+  origin: ['http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 
 // Middleware
 app.use(express.json());
@@ -96,18 +99,11 @@ const startServer = async () => {
 
     connection.release();
 
-    // Try ports sequentially
-    const ports = [5000, 5001, 5002, 5003];
-    for (const port of ports) {
-      const server = await tryStartServer(port);
-      if (server) {
-        // Update frontend API URL if not using default port
-        if (port !== 5000) {
-          console.log(`Note: Frontend needs to be updated to use port ${port}`);
-        }
-        break;
-      }
-    }
+    // Use process.env.PORT for hosting providers
+    const port = process.env.PORT || 8080;
+    app.listen(port, () => {
+      console.log(`Server is running on port ${port}`);
+    });
   } catch (error) {
     console.error('Unable to start server:', error);
     console.error('Error details:', {

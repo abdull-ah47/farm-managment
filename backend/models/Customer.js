@@ -9,12 +9,14 @@ const Customer = sequelize.define('customer', {
     },
     name: {
         type: DataTypes.STRING,
-        allowNull: false
+        allowNull: false,
+        validate: {
+            notEmpty: true
+        }
     },
     user_id: {
         type: DataTypes.INTEGER,
         allowNull: false,
-        field: 'user_id',
         references: {
             model: 'users',
             key: 'id'
@@ -32,4 +34,4 @@ const Customer = sequelize.define('customer', {
     ]
 });
 
-module.exports = Customer; 
+module.exports = Customer;

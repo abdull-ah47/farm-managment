@@ -60,12 +60,14 @@ router.post('/', auth, async (req, res) => {
             [name, req.user.id]
         );
 
-        connection.release();
-        res.status(201).json({
+        const newCustomer = {
             id: result.insertId,
             name,
-            message: 'Customer added successfully'
-        });
+            user_id: req.user.id
+        };
+
+        connection.release();
+        res.status(201).json({ ...newCustomer, message: 'Customer added successfully' });
     } catch (error) {
         console.error('Error adding customer:', error);
         res.status(500).json({ error: 'Failed to add customer' });
@@ -134,4 +136,4 @@ router.delete('/:id', auth, async (req, res) => {
     }
 });
 
-module.exports = router; 
+module.exports = router;

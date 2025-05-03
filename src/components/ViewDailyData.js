@@ -201,19 +201,19 @@ const ViewDailyData = () => {
 
       <div className="table-container">
         <table>
-          <thead>
-            <tr>
+            <thead>
+              <tr>
               <th>Date</th>
               <th>Customer Name</th>
-              <th>Milk Type</th>
-              <th>Liters</th>
+                <th>Milk Type</th>
+                <th>Liters</th>
               <th>Rate (Rs.)</th>
-              <th>Cash Received</th>
-              <th>Credit Due</th>
+                <th>Cash Received</th>
+                <th>Credit Due</th>
               <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
+              </tr>
+            </thead>
+            <tbody>
             {data.map((entry) => (
               <tr key={entry.id}>
                 {editingId === entry.id ? (
@@ -300,10 +300,10 @@ const ViewDailyData = () => {
                     </td>
                   </>
                 )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </tr>
+              ))}
+            </tbody>
+          </table>
       </div>
     </div>
   );
