@@ -56,17 +56,19 @@ const Dashboard = () => {
           }
         }
       );
+      console.log("response is",response)
+     const milkEntries = response?.data?.data || [];
+const filteredData = milkEntries.filter(entry => 
+  format(new Date(entry.date), 'yyyy-MM-dd') === selectedDate
+);
 
-      const filteredData = response.data.filter(entry => 
-        format(new Date(entry.date), 'yyyy-MM-dd') === selectedDate
-      );
 
       // Calculate totals
-      const calculatedTotals = filteredData.reduce((acc, curr) => ({
+      const calculatedTotals = filteredData?.reduce((acc, curr) => ({
         totalMilk: acc.totalMilk + Number(curr.liters || 0),
         totalSale: acc.totalSale + (Number(curr.liters || 0) * Number(curr.rate || 0)),
-        totalCashReceived: acc.totalCashReceived + Number(curr.cash_received || 0),
-        totalCreditDue: acc.totalCreditDue + Number(curr.credit_due || 0)
+        totalCashReceived: acc.totalCashReceived + Number(curr.cashReceived || 0),
+        totalCreditDue: acc.totalCreditDue + Number(curr.creditDue || 0)
       }), {
         totalMilk: 0,
         totalSale: 0,

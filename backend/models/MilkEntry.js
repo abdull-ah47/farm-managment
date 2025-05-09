@@ -1,6 +1,6 @@
 // models/MilkEntry.js
 const mongoose = require('mongoose');
-
+import mysqlConnection from '../config/database';
 // Define the schema for milk entry data
 const milkEntrySchema = new mongoose.Schema({
   date: {

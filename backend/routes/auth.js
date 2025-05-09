@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const User = require('../models/User');
 const { body, validationResult } = require('express-validator');
 const auth = require('../middleware/auth');
+import mysqlConnection from '../config/database';
 
 // Register new user
 router.post('/register', [

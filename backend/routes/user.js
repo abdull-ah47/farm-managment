@@ -1,126 +1,188 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
+const mysqlConnection = require('../config/database');
 
 // Register new user
 router.post('/register', async (req, res) => {
-  const pool = req.app.get('db');
-  const connection = await pool.getConnection();
-  
   try {
     console.log('Registration request received:', req.body);
     const { username, email, password, name } = req.body;
 
     // Validate input
     if (!username || !email || !password || !name) {
-      return res.status(400).json({ error: 'All fields are required' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'All fields are required' 
+      });
     }
 
     // Check if user exists
-    const [existingUsers] = await connection.query(
-      'SELECT * FROM users WHERE email = ? OR username = ?',
-      [email.toLowerCase(), username.toLowerCase()]
-    );
+    const checkUserQuery = `
+      SELECT * FROM users 
+      WHERE email = ? OR username = ?
+    `;
+    const checkUserParams = [email.toLowerCase(), username.toLowerCase()];
+
+    const existingUsers = await new Promise((resolve, reject) => {
+      mysqlConnection.query(checkUserQuery, checkUserParams, (error, results) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(results);
+      });
+    });
 
     if (existingUsers.length > 0) {
-      return res.status(400).json({ error: 'User with this email or username already exists' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'User with this email or username already exists' 
+      });
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Insert new user
-    const [result] = await connection.query(
-      `INSERT INTO users (username, email, password, name, created_at, updated_at)
-       VALUES (?, ?, ?, ?, NOW(), NOW())`,
-      [username.toLowerCase(), email.toLowerCase(), hashedPassword, name]
-    );
+    const insertUserQuery = `
+      INSERT INTO users (username, email, password, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, NOW(), NOW())
+    `;
+    const insertUserParams = [
+      username.toLowerCase(), 
+      email.toLowerCase(), 
+      hashedPassword, 
+      name
+    ];
+
+    const insertResult = await new Promise((resolve, reject) => {
+      mysqlConnection.query(insertUserQuery, insertUserParams, (error, results) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(results);
+      });
+    });
 
     // Get the inserted user
-    const [newUser] = await connection.query(
-      'SELECT id, name, username, email FROM users WHERE id = ?',
-      [result.insertId]
-    );
+    const getUserQuery = `
+      SELECT id, name, username, email 
+      FROM users 
+      WHERE id = ?
+    `;
+    const getUserParams = [insertResult.insertId];
+
+    const [newUser] = await new Promise((resolve, reject) => {
+      mysqlConnection.query(getUserQuery, getUserParams, (error, results) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(results);
+      });
+    });
 
     // Create JWT token
     const token = jwt.sign(
-      { id: result.insertId, username: username.toLowerCase() },
+      { id: insertResult.insertId, username: username.toLowerCase() },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    console.log('User registered successfully:', newUser[0]);
+    console.log('User registered successfully:', newUser);
 
     res.status(201).json({
+      success: true,
       message: 'Registration successful',
-      user: newUser[0],
+      user: newUser,
       token
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Registration failed: ' + error.message });
-  } finally {
-    connection.release();
+    res.status(500).json({ 
+      success: false,
+      error: 'Registration failed: ' + error.message 
+    });
   }
 });
 
 // Login user
 router.post('/login', async (req, res) => {
-  const pool = req.app.get('db');
-  const connection = await pool.getConnection();
-  
   try {
     const { email, password } = req.body;
-
+    console.log("the email and password is:",email, password)
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Email and password are required' 
+      });
     }
 
     // Get user
-    const [users] = await connection.query(
-      'SELECT * FROM users WHERE email = ?',
-      [email.toLowerCase()]
-    );
+    const getUserQuery = `
+      SELECT * FROM users 
+      WHERE email = ?
+    `;
+    const getUserParams = [email.toLowerCase()];
 
-    const user = users[0];
+    console.time("LoginQuery");
+const users = await new Promise((resolve, reject) => {
+  mysqlConnection.query(getUserQuery, getUserParams, (error, results) => {
+    if (error) return reject(error);
+    resolve(results);
+  });
+});
+console.timeEnd("LoginQuery");
 
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    
+    console.log("the password is:",users)
+    if (!users) {
+      return res.status(401).json({ 
+        success: false,
+        error: 'Invalid credentials' 
+      });
     }
 
     // Check password
+    console.log("the originale and password is:",password, users[0].password)
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ 
+        success: false,
+        error: 'Invalid credentials' 
+      });
     }
 
     // Create token
     const token = jwt.sign(
-      { id: user.id, username: user.username },
+      { id: users[0].id, username: users[0].username },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
     // Remove password from response
-    delete user.password;
+    const { password: _, ...userWithoutPassword } = user;
 
     res.json({
+      success: true,
       message: 'Login successful',
-      user,
+      user: userWithoutPassword,
       token
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed: ' + error.message });
-  } finally {
-    connection.release();
+    res.status(500).json({ 
+      success: false,
+      error: 'Login failed: ' + error.message 
+    });
   }
 });
 
 module.exports = router;
-
 
 
 

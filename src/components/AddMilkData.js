@@ -170,18 +170,18 @@ const AddMilkData = () => {
 
           {!isNewCustomer ? (
             <select
-              name="customerId"
-              value={formData.customerId}
-              onChange={handleInputChange}
-              required
-            >
-              <option value="">Select Customer</option>
-              {customers.map(customer => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name}
-                </option>
-              ))}
-            </select>
+            name="customerName"
+            value={formData.customerName}
+            onChange={handleInputChange}
+            required
+          >
+            <option value="">Select Customer</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.Name}>
+                {customer.name}
+              </option>
+            ))}
+          </select>
           ) : (
             <input
               type="text"
