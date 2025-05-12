@@ -138,7 +138,8 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const user = users;
+  const user = users; // Get the first matching user
+
     // Compare passwords
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {

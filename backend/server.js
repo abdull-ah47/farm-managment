@@ -9,17 +9,6 @@ require('dotenv').config();
 
 const app = express();
 
-// Enhanced security middleware
-app.use(helmet());
-app.disable('x-powered-by');
-
-// Rate limiting configuration
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // Limit each IP to 200 requests per window
-  standardHeaders: true,
-  legacyHeaders: false,
-});
 
 // Enhanced CORS configuration
 const corsOptions = {
@@ -32,8 +21,7 @@ const corsOptions = {
   exposedHeaders: ['Authorization', 'X-New-Token'],
   credentials: true,
   maxAge: 86400, // 24 hours
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+
 };
 
 // Apply CORS middleware
@@ -42,22 +30,9 @@ app.options('*', cors(corsOptions)); // Explicit preflight handling
 
 // Enhanced body parsing
 app.use(express.json());
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
-// Request logging middleware
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    console.log(
-      `${req.method} ${req.originalUrl} - ${res.statusCode} [${duration}ms]`
-    );
-  });
-  next();
-});
 
-// Apply rate limiting to API routes
-app.use('/api/', apiLimiter);
+
 
 // Route configuration
 app.use('/api/user', userRoutes);
@@ -65,26 +40,9 @@ app.use('/api/milk', milkRoutes);
 app.use('/api/customers', customerRoutes);
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
 
-// Enhanced error handling
-app.use((err, req, res, next) => {
-  console.error('Server error:', err.stack);
-  res.status(err.status || 500).json({
-    error: {
-      message: process.env.NODE_ENV === 'development' 
-        ? err.message 
-        : 'Internal Server Error',
-      code: err.code || 'SERVER_ERROR'
-    }
-  });
-});
+
+
 
 // Server startup
 const PORT = process.env.PORT || 5000;

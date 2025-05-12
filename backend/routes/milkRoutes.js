@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const mysqlConnection = require('../config/database');
 
-// POST route to save milk data
+// POST: Add milk entry
 router.post('/milkentries', async (req, res) => {
   try {
-    // Destructure the incoming request body
+    console.log("Request body:", req.body);
+    
     const { date, customerName, milkType, milkAmount, rate, cashReceived, creditDue } = req.body;
 
     // Validate required fields
@@ -16,63 +17,44 @@ router.post('/milkentries', async (req, res) => {
       });
     }
 
-    // Build the INSERT query
     const insertQuery = `
       INSERT INTO milk_entries 
       (date, customer_name, milk_type, milk_amount, rate, cash_received, credit_due, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
     `;
 
-    const insertParams = [
+    const result = await mysqlConnection.query(insertQuery, [
       date,
       customerName,
       milkType,
       milkAmount,
       rate,
-      cashReceived || 0,  // Default to 0 if not provided
-      creditDue || 0      // Default to 0 if not provided
-    ];
+      cashReceived || 0,
+      creditDue || 0
+    ]);
 
-    // Execute the INSERT query
-    const results = await new Promise((resolve, reject) => {
-      mysqlConnection.query(insertQuery, insertParams, (error, results) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(results);
-      });
-    });
-
-    res.status(201).json({ 
-      success: true, 
+    res.status(201).json({
+      success: true,
       message: 'Milk entry added successfully!',
-      entryId: results.insertId
+      entryId: result.insertId || null
     });
+
   } catch (error) {
     console.error('Error adding milk entry:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Failed to add milk entry. Please try again.',
+      message: 'Failed to add milk entry.',
       error: error.message
     });
   }
 });
 
-// GET route to fetch milk entries
+// GET: Fetch milk entries
 router.get('/milkentries', async (req, res) => {
   try {
-    const query = 'SELECT * FROM milk_entries ORDER BY date DESC';
-    
-    const entries = await new Promise((resolve, reject) => {
-      mysqlConnection.query(query, (error, results) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(results);
-      });
-    });
+    const entries = await mysqlConnection.query(
+      'SELECT * FROM milk_entries ORDER BY date DESC'
+    );
 
     res.status(200).json({
       success: true,
@@ -80,7 +62,7 @@ router.get('/milkentries', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching milk entries:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       message: 'Failed to fetch milk entries. Please try again.',
       error: error.message

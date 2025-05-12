@@ -5,7 +5,7 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const auth = async (req, res, next) => {
-  console.log('Auth middleware - Request path:', req.path);
+  // console.log('Auth middleware - Request path:', req);
 
   try {
     const authHeader = req.header('Authorization');
@@ -32,15 +32,15 @@ const auth = async (req, res, next) => {
       'SELECT * FROM users WHERE id = ?',
       [decoded.id]
     );
-
-    if (!users?.length) {
+    // console.log("the  user is:",users?.length)
+    if (!users) {
       return res.status(401).json({
         error: 'User not found',
         message: 'The user associated with this token no longer exists'
       });
     }
 
-    const user = { ...users[0] };
+    const user = { ...users };
     delete user.password;
 
     req.token = token;
