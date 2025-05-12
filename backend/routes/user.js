@@ -111,10 +111,12 @@ router.post('/register', async (req, res) => {
 });
 
 // Login user
+// Login user
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    console.log("the email and password is:",email, password)
+  console.log("the email and password are:",email,password)
+    // Validate input
     if (!email || !password) {
       return res.status(400).json({ 
         success: false,
@@ -122,33 +124,22 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Get user
-    const getUserQuery = `
-      SELECT * FROM users 
-      WHERE email = ?
-    `;
-    const getUserParams = [email.toLowerCase()];
+    // Get user from database
+    const [users] = await mysqlConnection.query(
+      'SELECT * FROM users WHERE email = ?',
+      [email.toLowerCase()]
+    );
 
-    console.time("LoginQuery");
-const users = await new Promise((resolve, reject) => {
-  mysqlConnection.query(getUserQuery, getUserParams, (error, results) => {
-    if (error) return reject(error);
-    resolve(results);
-  });
-});
-console.timeEnd("LoginQuery");
-
-    
-    console.log("the password is:",users)
-    if (!users) {
-      return res.status(401).json({ 
+    // Check if user exists
+    if (!users || users.length === 0) {
+      return res.status(401).json({
         success: false,
-        error: 'Invalid credentials' 
+        error: 'Invalid credentials'
       });
     }
 
-    // Check password
-    console.log("the originale and password is:",password, users[0].password)
+    const user = users;
+    // Compare passwords
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ 
@@ -156,32 +147,51 @@ console.timeEnd("LoginQuery");
         error: 'Invalid credentials' 
       });
     }
+    // JWT token generation
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET not configured');
+      return res.status(500).json({
+        success: false,
+        error: 'Server configuration error'
+      });
+    }
 
-    // Create token
     const token = jwt.sign(
-      { id: users[0].id, username: users[0].username },
+      {
+        id: user.id,
+        email: user.email,
+        role: user.role // Add if you have roles
+      },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    // Remove password from response
-    const { password: _, ...userWithoutPassword } = user;
+    // Create safe user object without password
+    const userResponse = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      username: user.username,
+      created_at: user.created_at
+      // Add other public fields as needed
+    };
 
-    res.json({
+    res.status(200).json({
       success: true,
       message: 'Login successful',
-      user: userWithoutPassword,
+      user: userResponse,
       token
     });
+    // ... rest of the login logic ...
+
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Login failed: ' + error.message 
+      error: 'Login failed'
     });
   }
 });
-
 module.exports = router;
 
 

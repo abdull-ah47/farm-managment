@@ -10,14 +10,18 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       await login(email, password);
       navigate('/dashboard');
     } catch (err) {
       setError('Invalid email or password');
+    }finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -80,7 +84,7 @@ const Login = () => {
           </div>
           
           <button type="submit" className="login-button">
-            Login
+          {isSubmitting ? 'Logging in...' : 'Login'}
           </button>
         </form>
         

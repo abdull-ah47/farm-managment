@@ -32,22 +32,25 @@ const ViewDailyData = () => {
 
       console.log('Fetching data for date:', date);
       
-      const response = await axios.get(`http://localhost:5000/api/milk?startDate=${date}&endDate=${date}`, {
-        headers: { 
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await axios.get(
+                        `http://localhost:5000/api/milk?startDate=${date}&endDate=${date}`,
+                        {
+                          headers: { 
+                            'Authorization': `Bearer ${token}`
+                          }
+                        }
+                      );
 
-      if (!response.data) {
-        throw new Error('No data received from server');
-      }
+                      console.log('API Response:', response.data); // Verify response structure
 
-      // Filter and ensure unique entries
-      const filteredData = response.data.filter(entry => 
-        format(new Date(entry.date), 'yyyy-MM-dd') === date
-      );
+                      // Check if data exists and is an array
+                      if (!Array.isArray(response.data?.data)) {
+                        throw new Error('Invalid data format from server');
+                      }
 
-      console.log('Filtered data:', filteredData);
+                      const filteredData = response.data.data.filter(entry => 
+                        format(new Date(entry.date), 'yyyy-MM-dd') === date
+                      );
 
       // Calculate totals
       const calculatedTotals = filteredData.reduce((acc, curr) => ({

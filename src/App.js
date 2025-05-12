@@ -11,8 +11,12 @@ import Navbar from './components/Navbar';
 import './styles/App.css';
 
 const PrivateRoute = ({ children }) => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth(); 
   
+  if (loading) {
+    return <div>Loading...</div>; 
+  }
+
   if (!user) {
     return <Navigate to="/login" />;
   }

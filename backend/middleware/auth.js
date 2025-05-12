@@ -1,26 +1,16 @@
 const jwt = require('jsonwebtoken');
-const mysql = require('mysql2/promise');
-require('dotenv').config();
+const mysqlConnection = require('../config/database.js');
+const dotenv = require('dotenv');
 
-// Create connection pool
-const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-});
+dotenv.config();
 
 const auth = async (req, res, next) => {
   console.log('Auth middleware - Request path:', req.path);
-  
+
   try {
-    // Extract token from header
     const authHeader = req.header('Authorization');
     if (!authHeader) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         error: 'No Authorization header found',
         message: 'Please provide an authentication token'
       });
@@ -28,55 +18,63 @@ const auth = async (req, res, next) => {
 
     const token = authHeader.replace('Bearer ', '');
     if (!token) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         error: 'Invalid token format',
         message: 'Authentication token is missing or malformed'
       });
     }
 
     // Verify token
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
-    } catch (jwtError) {
-      console.error('JWT verification failed:', jwtError);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Decoded token:', decoded);
+    // Directly use the pool-based query method
+    const [users] = await mysqlConnection.query(
+      'SELECT * FROM users WHERE id = ?',
+      [decoded.id]
+    );
+
+    if (!users?.length) {
       return res.status(401).json({
-        error: 'Invalid token',
-        message: jwtError.name === 'TokenExpiredError' 
-          ? 'Your session has expired. Please login again.'
-          : 'Invalid authentication token'
+        error: 'User not found',
+        message: 'The user associated with this token no longer exists'
       });
     }
 
-    // Find user using MySQL
-    const connection = await pool.getConnection();
-    try {
-      const [users] = await connection.query(
-        'SELECT * FROM users WHERE id = ?',
-        [decoded.id]
-      );
-      
-      if (!users || users.length === 0) {
-        return res.status(401).json({
-          error: 'User not found',
-          message: 'The user associated with this token no longer exists'
-        });
-      }
+    const user = { ...users[0] };
+    delete user.password;
 
-      const user = users[0];
-      // Remove sensitive data
-      delete user.password;
-
-      // Attach user and token to request
-      req.token = token;
-      req.user = user;
-      console.log('Auth successful for user:', user.username);
-      next();
-    } finally {
-      connection.release();
-    }
+    req.token = token;
+    req.user = user;
+    console.log('Auth successful for user:', user.username);
+    next();
   } catch (error) {
     console.error('Authentication error:', error);
+
+    // Handle specific JWT errors
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        error: 'Token expired',
+        message: 'Your session has expired. Please login again.'
+      });
+    }
+
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        error: 'Invalid token',
+        message: 'Malformed authentication token'
+      });
+    }
+
+    // Handle MySQL connection errors
+    if (error.code === 'ECONNRESET' || error.code === 'PROTOCOL_CONNECTION_LOST') {
+      console.error('Database connection error:', error);
+      return res.status(503).json({
+        error: 'Database connection error',
+        message: 'Failed to connect to the database'
+      });
+    }
+
+    // Important: Add return to prevent headers sent error
     return res.status(500).json({
       error: 'Authentication failed',
       message: 'An error occurred during authentication'
@@ -84,4 +82,4 @@ const auth = async (req, res, next) => {
   }
 };
 
-module.exports = auth; 
+module.exports = auth;

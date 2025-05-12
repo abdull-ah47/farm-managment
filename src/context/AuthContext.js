@@ -20,6 +20,7 @@ const authFetch = async (url, options = {}) => {
   };
 
   const response = await fetch(url, { ...options, headers });
+  console.log("the response is:",response)
   if (!response.ok) {
     const errorData = await response.json();
     throw new Error(errorData.message || 'Request failed');
@@ -32,26 +33,28 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Token and user init on mount
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const token = localStorage.getItem('token');
+ useEffect(() => {
+  const storedUser = localStorage.getItem('user');
+  const token = localStorage.getItem('token');
 
-    if (storedUser && token) {
-      try {
-        const decoded = JSON.parse(atob(token.split('.')[1]));
-        const isExpired = decoded.exp * 1000 < Date.now();
-        if (isExpired) {
-          logout();
-        } else {
-          setUser(JSON.parse(storedUser));
-        }
-      } catch (err) {
-        logout(); // malformed token
+  if (storedUser && token) {
+    try {
+      const decoded = JSON.parse(atob(token.split('.')[1]));
+      const isExpired = decoded.exp * 1000 < Date.now();
+      
+      if (isExpired) {
+        logout();
+      } else {
+        
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
       }
+    } catch (err) {
+      logout(); 
     }
-    setLoading(false);
-  }, []);
+  }
+  setLoading(false);
+}, []);
 
   // LOGIN
   const login = async (email, password) => {

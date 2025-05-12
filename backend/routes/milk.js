@@ -33,19 +33,24 @@ router.get('/', auth, async (req, res) => {
 
         query += ' ORDER BY date DESC, milk_type';
 
-        const [rows] = await mysqlConnection.query(query, params);
+        // Remove array destructuring here
+        const rows = await mysqlConnection.query(query, params);
+        console.log("the rows are:", rows);
 
-        const formattedRows = rows.map(row => ({
-            id: row.id,
-            customerName: row.customer_name,
-            milkType: row.milk_type,
-            liters: Number(row.liters),
-            rate: Number(row.rate),
-            cashReceived: Number(row.cash_received || 0),
-            creditDue: Number(row.credit_due || 0),
-            date: row.date,
-            userId: row.user_id
-        }));
+        // Ensure we're working with an array
+        const formattedRows = Array.isArray(rows) 
+            ? rows.map(row => ({
+                id: row.id,
+                customerName: row.customer_name,
+                milkType: row.milk_type,
+                liters: Number(row.liters),
+                rate: Number(row.rate),
+                cashReceived: Number(row.cash_received || 0),
+                creditDue: Number(row.credit_due || 0),
+                date: row.date,
+                userId: row.user_id
+            }))
+            : [];
 
         res.status(200).json({
             success: true,
@@ -56,6 +61,7 @@ router.get('/', auth, async (req, res) => {
     } catch (error) {
         console.error('Error fetching milk data:', error);
         res.status(500).json({ 
+            success: false,
             error: 'Failed to fetch milk data',
             message: error.message
         });
